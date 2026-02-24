@@ -651,36 +651,5 @@ def main():
             st.session_state.results = []
             st.rerun()
 
-        # Sidebar
-    with st.sidebar:
-        st.header("How to Use")
-        st.markdown("""
-        ### Single File Mode
-        1. Select your platform (iOS or Android)
-        2. Upload screenshots
-        3. Click Process
-        4. View results with image preview
-        5. Copy sections or download CSV
-        
-        ### Batch Mode
-        1. Organize screenshots in folders
-        2. Create ZIP file
-        3. Upload and process
-        4. Review collapsed results
-        5. Export all data
-        
-        ---
-        
-        **Tips:**
-        - Results show warnings if data is missing
-        - Use code boxes to copy individual sections
-        - Excel format uses tabs for easy paste
-        - Check image preview to verify extraction
-        """)
-        
-        if st.button("Clear All", use_container_width=True):
-            st.session_state.results = []
-            st.rerun()
-
         st.markdown("---")
         st.markdown("*Happy Extracting <3*  \n— Maya :D")
