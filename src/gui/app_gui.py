@@ -172,7 +172,7 @@ def main():
             return "Activity"
         return "Result"
 
-    def display_result_section(data, result_type, image_path=None, filename=None):
+    def display_result_section(data, result_type, image_path=None, filename=None, folder_name=None):
         """Display a single result with image preview and copy buttons"""
         
         # Create columns for image and data
@@ -317,8 +317,14 @@ def main():
             # Copy All button
             st.divider()
             excel_format = format_for_excel(data, result_type)
-            st.text_area("Copy All (Excel Format)", excel_format, height=150, 
-                        help="Copy this text and paste directly into Excel - it will automatically separate into columns")
+            unique_key = f"excel_{folder_name}_{filename}_{result_type}"
+            st.text_area(
+                "Copy All (Excel Format)",
+                excel_format,
+                height=150,
+                key=unique_key,
+                help="Copy this text and paste directly into Excel"
+            )
 
     # Header
     st.markdown('''
@@ -471,63 +477,75 @@ def main():
                         with tempfile.TemporaryDirectory() as temp_dir:
                             with zipfile.ZipFile(zip_file, 'r') as zip_ref:
                                 zip_ref.extractall(temp_dir)
-                            
-                            # Process each folder
+
                             temp_path = Path(temp_dir)
-                            folders = [f for f in temp_path.iterdir() if f.is_dir() and not f.name.startswith('.')]
-                            
+                            folders = []
+
+                            # Find folders that actually contain images
+                            for folder in temp_path.rglob("*"):
+                                if folder.is_dir():
+                                    images = list(folder.glob("*.png")) + list(folder.glob("*.jpg")) + list(folder.glob("*.jpeg"))
+                                    if images:
+                                        folders.append(folder)
+
+                            # Process each folder
                             for folder in folders:
-                                images = sorted([f for f in folder.iterdir() if f.suffix.lower() in ['.png', '.jpg', '.jpeg']])
-                                
+                                images = sorted([
+                                    f for f in folder.rglob("*")
+                                    if f.suffix.lower() in ['.png', '.jpg', '.jpeg']
+                                ])
+
                                 if not images:
                                     continue
-                                
+
                                 folder_results = {
                                     "folder_name": folder.name,
                                     "results": [],
                                     "errors": []
                                 }
-                                
+
                                 try:
                                     if platform_batch == "iOS":
-                                        # First file is overall
                                         if len(images) > 0:
                                             result = process_ios_overall_screenshot(str(images[0]))
                                             folder_results["results"].append({
                                                 "type": "ios_overall",
                                                 "name": images[0].name,
-                                                "data": result
+                                                "data": result,
+                                                "image": str(images[0])
                                             })
-                                        
-                                        # Rest are categories
+
                                         for img in images[1:]:
                                             result = process_ios_category_screenshot(str(img))
                                             folder_results["results"].append({
                                                 "type": "ios_category",
                                                 "name": img.name,
-                                                "data": result
+                                                "data": result,
+                                                "image": str(images[0])
                                             })
-                                    
+
                                     else:  # Android
                                         if len(images) > 0:
                                             result = process_android_overall_screenshot(str(images[0]))
                                             folder_results["results"].append({
                                                 "type": "android_overall",
                                                 "name": images[0].name,
-                                                "data": result
+                                                "data": result,
+                                                "image": str(images[0])
                                             })
-                                        
+
                                         if len(images) > 1:
                                             result = process_android_activity_history([str(img) for img in images[1:]])
                                             folder_results["results"].append({
                                                 "type": "android_activity",
                                                 "name": "Activity History",
-                                                "data": result
+                                                "data": result,
+                                                "image": str(images[0])
                                             })
-                                
+
                                 except Exception as e:
                                     folder_results["errors"].append(str(e))
-                                
+
                                 st.session_state.results.append(folder_results)
                         
                         st.success(f"Processed {len(st.session_state.results)} folders!")
@@ -546,7 +564,7 @@ def main():
             
             for tab, result in zip(tabs, st.session_state.results):
                 with tab:
-                    display_result_section(result['data'], result['type'], result.get('image'), result['name'])
+                    display_result_section(result['data'], result['type'], result.get('image'), result['name'], folder_result["folder_name"])
             
             # Clear/Reset and Export buttons
             st.divider()
@@ -575,21 +593,56 @@ def main():
                     )
         
         else:
-            # Batch mode - show collapsible folders
+            # Batch mode - dropdown per folder, tabs inside
             for folder_result in st.session_state.results:
+
                 folder_name = folder_result['folder_name']
                 has_errors = len(folder_result['errors']) > 0
-                
-                status_icon = "⚠️" if has_errors else "✅"
-                
-                with st.expander(f"{status_icon} {folder_name} ({len(folder_result['results'])} files)", expanded=False):
+                status_icon = "⚠️" if has_errors else "📁"
+
+                with st.expander(f"{status_icon} {folder_name}", expanded=False):
+
                     if has_errors:
                         st.error(f"Errors: {', '.join(folder_result['errors'])}")
-                    
-                    for result in folder_result['results']:
-                        st.subheader(f"{get_result_label(result['type'], result['data'])} - {result['name']}")
-                        display_result_section(result['data'], result['type'], None, result['name'])
-                        st.divider()
+
+                    folder_results = folder_result["results"]
+
+                    if not folder_results:
+                        st.warning("No valid screenshots processed.")
+                        continue
+
+                    tabs = st.tabs([
+                        get_result_label(r['type'], r['data']) 
+                        for r in folder_results
+                    ])
+
+                    for tab, result in zip(tabs, folder_results):
+                        with tab:
+                            display_result_section(
+                                result['data'],
+                                result['type'],
+                                result.get('image'),
+                                result['name'],
+                                folder_result["folder_name"]
+                            )
+
+                    if st.button(f"Download {folder_name} CSV", key=f"dl_{folder_name}"):
+                        csv_buffer = io.StringIO()
+
+                        for result in folder_results:
+                            csv_buffer.write(f"\n--- {result['name']} ---\n")
+                            csv_buffer.write(
+                                format_for_excel(result['data'], result['type']).replace('\t', ',')
+                            )
+                            csv_buffer.write("\n")
+
+                        st.download_button(
+                            label="Download CSV",
+                            data=csv_buffer.getvalue(),
+                            file_name=f"{folder_name}_screen_time.csv",
+                            mime="text/csv",
+                            use_container_width=True
+                        )
             
             # Clear and Export buttons
             st.divider()
