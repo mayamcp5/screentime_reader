@@ -367,7 +367,7 @@ def main():
     # SINGLE FILE MODE
     if st.session_state.mode == 'single':
         st.header("Step 1: Select Platform")
-        platform = st.radio("", ["iOS", "Android"], horizontal=True, label_visibility="collapsed")
+        platform = st.radio("Select platform", ["iOS", "Android"], horizontal=True, label_visibility="collapsed")
         
         st.header("Step 2: Upload Screenshots")
         col1, col2 = st.columns(2)
