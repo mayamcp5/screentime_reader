@@ -650,3 +650,8 @@ def main():
         if st.button("Clear All", use_container_width=True):
             st.session_state.results = []
             st.rerun()
+
+        st.markdown("""
+            *Happy Extracting <3*
+                - Maya :D
+        """)
