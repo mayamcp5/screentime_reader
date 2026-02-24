@@ -652,4 +652,4 @@ def main():
             st.rerun()
 
         st.markdown("---")
-        st.markdown("*Happy Extracting <3*  \n— Maya :D")
+        st.markdown("*Happy Extracting <3*  \n  — Maya :D")
