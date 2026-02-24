@@ -30,7 +30,7 @@ end
 # Unset irrelevant variables.
 deactivate nondestructive
 
-set -gx VIRTUAL_ENV "/Users/mayamcpartland/winston/screen_time_extractor/venv"
+set -gx VIRTUAL_ENV "/Users/mayamcpartland/winston/screen_time_public/venv"
 
 set -gx _OLD_VIRTUAL_PATH $PATH
 set -gx PATH "$VIRTUAL_ENV/bin" $PATH
