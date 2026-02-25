@@ -511,8 +511,7 @@ def main():
                                             folder_results["results"].append({
                                                 "type": "ios_overall",
                                                 "name": images[0].name,
-                                                "data": result,
-                                                "image": str(images[0])
+                                                "data": result
                                             })
 
                                         for img in images[1:]:
@@ -520,8 +519,7 @@ def main():
                                             folder_results["results"].append({
                                                 "type": "ios_category",
                                                 "name": img.name,
-                                                "data": result,
-                                                "image": str(images[0])
+                                                "data": result
                                             })
 
                                     else:  # Android
@@ -530,8 +528,7 @@ def main():
                                             folder_results["results"].append({
                                                 "type": "android_overall",
                                                 "name": images[0].name,
-                                                "data": result,
-                                                "image": str(images[0])
+                                                "data": result
                                             })
 
                                         if len(images) > 1:
@@ -539,8 +536,7 @@ def main():
                                             folder_results["results"].append({
                                                 "type": "android_activity",
                                                 "name": "Activity History",
-                                                "data": result,
-                                                "image": str(images[0])
+                                                "data": result
                                             })
 
                                 except Exception as e:
