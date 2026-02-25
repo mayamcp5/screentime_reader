@@ -69,7 +69,7 @@ def is_gridline_pixel(r, g, b, mode='dark'):
     if mode == 'light':
         return 190 <= brightness <= 230
     else:
-        return 50 <= brightness <= 110
+        return 40 <= brightness <= 120
 
 # ================================
 # HOURLY CHART EXTRACTION (with debug)
@@ -125,12 +125,12 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
 
     # --- Detect gridlines ---
     gridlines = []
-    for y in range(chart_top - 500, chart_bottom):
+    for y in range(0, chart_bottom):
         if y < 0 or y >= img_h:
             continue
         row = arr[y]
         gray_count = sum(is_gridline_pixel(*px, mode) for px in row)
-        if gray_count > 0.4 * img_w:
+        if gray_count > 0.3 * img_w:
             gridlines.append(y)
 
     collapsed = []
@@ -148,6 +148,26 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
     NUM_GRIDLINES = 5
     if len(collapsed) > NUM_GRIDLINES:
         collapsed = collapsed[-NUM_GRIDLINES:]
+
+    # Validate we have exactly 5 gridlines
+    if len(collapsed) < 5 and len(collapsed) >= 2:
+        print(f"⚠️ Only detected {len(collapsed)} gridlines: {collapsed}")
+        
+        # Estimate average spacing
+        spacings = [
+            collapsed[i+1] - collapsed[i]
+            for i in range(len(collapsed)-1)
+        ]
+        avg_spacing = sum(spacings) / len(spacings)
+        
+        print(f"Estimated spacing: {avg_spacing}")
+
+        # Add missing gridlines ABOVE
+        while len(collapsed) < 5:
+            new_line = int(collapsed[0] - avg_spacing)
+            collapsed.insert(0, new_line)
+
+        print(f"After reconstruction: {collapsed}")
 
     chart_top_line = collapsed[0]
     chart_bottom_line = collapsed[-1]
@@ -195,17 +215,17 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
             else:
                 vertical_run = 0
 
-        has_bar = max_vertical_run >= 2
+        has_bar = max_vertical_run >= 1
 
         if has_bar and not in_bar:
             seg_start = x
             in_bar = True
         elif not has_bar and in_bar:
-            if x - seg_start >= 2:
+            if x - seg_start >= 1:
                 bar_segments.append((seg_start, x - 1))
             in_bar = False
 
-    if in_bar and chart_right - seg_start >= 2:
+    if in_bar and chart_right - seg_start >= 1:
         bar_segments.append((seg_start, chart_right - 1))
 
     result = {hour: {"overall":0, "top1":0,"top2":0,"top3":0,"other":0} for hour in HOURS}
@@ -228,10 +248,10 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
             cv2.line(debug_draw, (0, y), (img_w-1, y), (0, 0, 255), 1)
 
         # Draw top line in BLUE
-        cv2.line(debug_draw, (0, chart_top_line), (img_w-1, chart_top_line), (255, 0, 0), 2)
+        cv2.line(debug_draw, (0, chart_top_line), (img_w-1, chart_top_line), (255, 0, 0), 1)
 
         # Draw bottom line in PURPLE
-        cv2.line(debug_draw, (0, chart_bottom_line), (img_w-1, chart_bottom_line), (128, 0, 128), 2)
+        cv2.line(debug_draw, (0, chart_bottom_line), (img_w-1, chart_bottom_line), (128, 0, 128), 1)
 
         cv2.imwrite(debug_output_path, debug_draw)
 
@@ -251,7 +271,7 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
             cats = [classify_pixel(*px, mode) for px in col]
             bar_rows = [y for y,c in enumerate(cats) if c is not None]
 
-            if len(bar_rows) < 2:
+            if len(bar_rows) < 1:
                 continue
 
             # Find the LOWEST classified pixel (true bottom of this bar)
@@ -340,14 +360,13 @@ def process_ios_overall_screenshot(image_path: str) -> dict:
         "entertainment": ["entertainment"],
         "education": ["education"],
         "games": ["games", "game"],
-        "productivity": ["productivity"],
+        "productivity & finance": ["productivity", "finance"],
         "creativity": ["creativity"],
         "utilities": ["utilities", "utility"],
         "shopping & food": ["shopping", "food"],
         "travel": ["travel"],
         "health & fitness": ["health", "fitness"],
         "information & reading": ["information", "reading"],
-        "finance": ["finance"],
         "other": ["other"]
     }
 
@@ -463,14 +482,27 @@ def process_ios_overall_screenshot(image_path: str) -> dict:
                     pending_app = normalized
 
         return apps
+    
+    def is_category_view(source_lines: list) -> bool:
+        for line in source_lines:
+            lower = line.lower()
+            if "show apps and websites" in lower:
+                return True
+            if "show apps" in lower:
+                return True
+        return False
 
     # Strategy: try light_text lines first (times reliably appear on separate
     # lines there for both dark AND light mode screenshots), fall back to
     # merged lines if light_text yields nothing.
     light_lines = [l.strip() for l in light_text.split("\n") if l.strip()]
-    top_apps = extract_apps_from_lines(light_lines)
 
-    if not top_apps:
+    if is_category_view(light_lines):
+        top_apps = []
+    else:
+        top_apps = extract_apps_from_lines(light_lines)
+
+    if not top_apps and not is_category_view(light_lines):
         top_apps = extract_apps_from_lines(lines)
 
     def minutes(t):
