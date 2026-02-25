@@ -556,7 +556,18 @@ def main():
         
         if st.session_state.mode == 'single':
             # Single mode - show tabs
-            tabs = st.tabs([get_result_label(r['type'], r['data']) for r in st.session_state.results])
+            # Ensure all tab labels are valid strings
+            tab_labels = []
+            for r in st.session_state.results:
+                try:
+                    label = get_result_label(r['type'], r.get('data', {}))
+                    if not label or not isinstance(label, str):
+                        label = r.get('name', 'Result')
+                    tab_labels.append(str(label))
+                except Exception:
+                    tab_labels.append(r.get('name', 'Result'))
+
+            tabs = st.tabs(tab_labels)
             
             for tab, result in zip(tabs, st.session_state.results):
                 with tab:
