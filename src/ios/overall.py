@@ -25,7 +25,6 @@ def preprocess_for_ocr(image_path: str, light_text: bool = False) -> Image.Image
 
     img_np = np.array(img)
     _, img_np = cv2.threshold(img_np, threshold_val, 255, cv2.THRESH_BINARY_INV)
-    cv2.imwrite("debug_preprocessed.png", img_np)
 
     return Image.fromarray(img_np)
 

@@ -560,7 +560,7 @@ def main():
             
             for tab, result in zip(tabs, st.session_state.results):
                 with tab:
-                    display_result_section(result['data'], result['type'], result.get('image'), result['name'], folder_result["folder_name"])
+                    display_result_section(result['data'], result['type'], result.get('image'), result['name'], "single")
             
             # Clear/Reset and Export buttons
             st.divider()
