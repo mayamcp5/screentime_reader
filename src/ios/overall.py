@@ -426,9 +426,15 @@ def process_ios_overall_screenshot(image_path: str) -> dict:
         return parse_time_fragment(fixed)
 
     def clean_candidate(raw: str):
-        candidate = re.sub(r'^[a-zA-Z&\d]{1,2}[\.\s]\s*', '', raw)
+        # Remove leading junk including numbers and punctuation like 'd', '8)', '|'
+        candidate = re.sub(r'^[\d\|\)\]\s\.]+', '', raw)
+        # Remove common OCR prefixes  
+        candidate = re.sub(r'^[a-zA-Z&]{1,2}[\.\s)\]]\s*', '', candidate)
+        # Remove trailing punctuation
         candidate = re.sub(r"['\-,\.]+$", "", candidate)
+        # Remove quotes
         candidate = re.sub(r"^['\"]|['\"]$", "", candidate)
+        # Remove trailing numbers
         candidate = re.sub(r'\s+\d+$', '', candidate)
         return candidate.strip()
 
@@ -445,12 +451,7 @@ def process_ios_overall_screenshot(image_path: str) -> dict:
         return any(re.search(pat, tl, re.IGNORECASE) for pat in STOP_PATTERNS)
 
     def extract_apps_from_lines(source_lines: list) -> list:
-        """
-        Walk source_lines after 'MOST USED', pairing app names with the time
-        that immediately follows them (name on one line, time on the next).
-        Returns list of {"name": ..., "time": ...} dicts.
-        """
-        apps = []
+        apps_dict = {}
         in_most_used = False
         pending_app = None
 
@@ -466,22 +467,31 @@ def process_ios_overall_screenshot(image_path: str) -> dict:
             parsed = robust_parse_time(line)
             if parsed:
                 h, m = parsed
-                if h + m > 0 and pending_app:
-                    apps.append({"name": pending_app, "time": f"{h}h {m}m"})
-                    pending_app = None
+                if h + m > 0:
+                    if pending_app:
+                        apps_dict[pending_app] = f"{h}h {m}m"
+                        pending_app = None
+                    else:
+                        print(f"⚠️ Found time {h}h {m}m but NO pending app!")
                     continue
-                # time line but no pending app — skip
-                continue
 
-            # Not a time line — treat as potential app name
             candidate = clean_candidate(line)
+            
             name = clean_app_name(candidate)
+            
             if is_valid_app_name(name) and len(name) >= 3:
                 normalized = re.sub(r'\W+$', '', name).strip()
                 if len(normalized) >= 3:
-                    pending_app = normalized
+                    if pending_app and pending_app not in apps_dict:
+                        apps_dict[pending_app] = "0h 0m"
+                    
+                    if normalized not in apps_dict:
+                        pending_app = normalized
 
-        return apps
+        if pending_app and pending_app not in apps_dict:
+            apps_dict[pending_app] = "0h 0m"
+
+        return [{"name": name, "time": time} for name, time in apps_dict.items()]
     
     def is_category_view(source_lines: list) -> bool:
         for line in source_lines:

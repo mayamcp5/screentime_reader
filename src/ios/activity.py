@@ -7,12 +7,32 @@ from src.parsing.app_name_parsing import clean_app_name, is_valid_app_name
 
 
 def process_ios_category_screenshot(image_path: str, include_seconds=False):
-    text = ocr_image(image_path)
-
+    from src.ios.overall import preprocess_for_ocr
+    from PIL import Image
+    import numpy as np
+    
+    # Detect dark vs light mode by sampling background
+    img = Image.open(image_path).convert("RGB")
+    arr = np.array(img)
+    sample = arr[100:200, 100:200]  # Sample a region
+    avg_brightness = np.mean(sample)
+    
+    is_dark_mode = avg_brightness < 127
+    
+    print(f"Detected mode: {'DARK' if is_dark_mode else 'LIGHT'} (brightness: {avg_brightness:.1f})")
+    
+    # Use appropriate preprocessing
+    if is_dark_mode:
+        # Dark mode - use light_text preprocessing for white text
+        text = ocr_image(preprocess_for_ocr(image_path, light_text=True))
+    else:
+        # Light mode - use normal preprocessing for dark text
+        text = ocr_image(image_path)
+    
     print("\n================ RAW OCR TEXT ================\n")
     print(text)
     print("\n=============================================\n")
-
+    
     lines = [l.strip() for l in text.split("\n") if l.strip()]
 
     category = None
@@ -28,6 +48,8 @@ def process_ios_category_screenshot(image_path: str, include_seconds=False):
             category = "Entertainment"
         if "social" in lower:
             category = "Social"
+        if not category:
+            category = "Cut-off Category"
 
     # ======================================================
     # 2️⃣ Extract TOTAL TIME
@@ -74,7 +96,17 @@ def process_ios_category_screenshot(image_path: str, include_seconds=False):
     # ======================================================
     # 4️⃣ Detect layout type
     # ======================================================
-    same_line_layout = any(parse_time_fragment(l) for l in apps_section)
+    # Check if ANY line has BOTH a name AND time on same line
+    same_line_layout = False
+    for line in apps_section:
+        has_time = parse_time_fragment(line) is not None
+        # Remove time and check if substantial text remains
+        line_without_time = re.sub(r'\d+h|\d+m|\d+s', '', line).strip()
+        has_name = len(line_without_time) >= 3
+        
+        if has_time and has_name:
+            same_line_layout = True
+            break
 
     # ======================================================
     # 5️⃣ Parse SAME-LINE layout
@@ -119,18 +151,33 @@ def process_ios_category_screenshot(image_path: str, include_seconds=False):
     # 6️⃣ Parse SPLIT layout
     # ======================================================
     else:
-        # Collect names
+        # Collect names AND times from apps_section
         names = []
+        times = []
+        
         for line in apps_section:
             line = line.replace("Th", "1h").replace("lh", "1h").replace("Ih", "1h")
-            if parse_time_fragment(line):
-                continue  # skip lines with time
-            name = clean_app_name(re.sub(r'^[^a-zA-Z]+', '', line))
-            if is_valid_app_name(name) and len(name) >= 3:
+            
+            # Check if this is a time line
+            parsed = parse_time_fragment(line)
+            if parsed:
+                h, m = parsed
+                if include_seconds or h > 0 or m > 0:
+                    times.append((h, m))
+                print(f"  Time line: {repr(line)} → ({h}h {m}m)")
+                continue
+            
+            # Not a time - must be app name
+            original = line
+            cleaned = re.sub(r'^[^a-zA-Z]+', '', line)
+            name = clean_app_name(cleaned)
+            valid = is_valid_app_name(name)
+            print(f"  Name line: {repr(original)} → {repr(name)} → valid: {valid}")
+            
+            if valid and len(name) >= 3:
                 names.append(name)
 
-        # Collect times
-        times = []
+        # Also collect times from times_section if it exists
         for line in times_section:
             parsed = parse_time_fragment(line)
             if not parsed:
@@ -140,8 +187,9 @@ def process_ios_category_screenshot(image_path: str, include_seconds=False):
                 continue
             times.append((h, m))
 
-        # Remove first time (Daily Average)
-        if times:
+        # If more times than names, skip first time (likely Daily Average)
+        if len(times) > len(names):
+            print(f"  Skipping first time (Daily Average): {times[0]}")
             times = times[1:]
 
         for name, (h, m) in zip(names, times):

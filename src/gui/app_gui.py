@@ -506,15 +506,27 @@ def main():
 
                                 try:
                                     if platform_batch == "iOS":
-                                        if len(images) > 0:
-                                            result = process_ios_overall_screenshot(str(images[0]))
+                                        # New order: category 1, overall, category 2+
+                                        if len(images) >= 1:
+                                            # First image is category 1
+                                            result = process_ios_category_screenshot(str(images[0]))
                                             folder_results["results"].append({
-                                                "type": "ios_overall",
+                                                "type": "ios_category",
                                                 "name": images[0].name,
                                                 "data": result
                                             })
-
-                                        for img in images[1:]:
+                                        
+                                        if len(images) >= 2:
+                                            # Second image is overall
+                                            result = process_ios_overall_screenshot(str(images[1]))
+                                            folder_results["results"].append({
+                                                "type": "ios_overall",
+                                                "name": images[1].name,
+                                                "data": result
+                                            })
+                                        
+                                        # Rest are additional categories (starting from image 3)
+                                        for img in images[2:]:
                                             result = process_ios_category_screenshot(str(img))
                                             folder_results["results"].append({
                                                 "type": "ios_category",
@@ -568,7 +580,7 @@ def main():
                     tab_labels.append(r.get('name', 'Result'))
 
             tabs = st.tabs(tab_labels)
-            
+
             for tab, result in zip(tabs, st.session_state.results):
                 with tab:
                     display_result_section(result['data'], result['type'], result.get('image'), result['name'], "single")
@@ -618,10 +630,18 @@ def main():
                         st.warning("No valid screenshots processed.")
                         continue
 
-                    tabs = st.tabs([
-                        get_result_label(r['type'], r['data']) 
-                        for r in folder_results
-                    ])
+                    # Ensure all tab labels are valid strings  
+                    tab_labels_batch = []
+                    for r in folder_results:
+                        try:
+                            label = get_result_label(r['type'], r.get('data', {}))
+                            if not label or not isinstance(label, str):
+                                label = r.get('name', 'Result')
+                            tab_labels_batch.append(str(label))
+                        except Exception:
+                            tab_labels_batch.append(r.get('name', 'Result'))
+
+                    tabs = st.tabs(tab_labels_batch)
 
                     for tab, result in zip(tabs, folder_results):
                         with tab:
