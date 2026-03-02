@@ -460,7 +460,7 @@ def main():
     # BATCH PROCESSING MODE
     else:
         st.header("Batch Processing Mode")
-        st.markdown('<div class="info-box">📦 Upload a ZIP file containing folders. Each folder should contain screenshots for one participant (overall file first, then activity/category files).</div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-box">Upload a ZIP file containing folders. Each folder should contain screenshots for one participant (overall file first, then activity/category files).</div>', unsafe_allow_html=True)
         
         zip_file = st.file_uploader("Upload ZIP file with organized folders", type=['zip'])
         platform_batch = st.radio("Select Platform", ["iOS", "Android"], horizontal=True)
@@ -590,12 +590,12 @@ def main():
             col1, col2 = st.columns(2)
             
             with col1:
-                if st.button("🔄 Clear All & Reset", use_container_width=True, type="secondary"):
+                if st.button("Clear All & Reset", use_container_width=True, type="secondary"):
                     st.session_state.results = []
                     st.rerun()
             
             with col2:
-                if st.button("📥 Download All as CSV", use_container_width=True):
+                if st.button("Download All as CSV", use_container_width=True):
                     csv_buffer = io.StringIO()
                     
                     for result in st.session_state.results:
@@ -676,12 +676,12 @@ def main():
             col1, col2 = st.columns(2)
             
             with col1:
-                if st.button("🔄 Clear All & Reset", use_container_width=True, type="secondary", key="batch_clear"):
+                if st.button("Clear All & Reset", use_container_width=True, type="secondary", key="batch_clear"):
                     st.session_state.results = []
                     st.rerun()
             
             with col2:
-                if st.button("📥 Download Batch Results as CSV", use_container_width=True):
+                if st.button("Download Batch Results as CSV", use_container_width=True):
                     csv_buffer = io.StringIO()
                     
                     for folder_result in st.session_state.results:
