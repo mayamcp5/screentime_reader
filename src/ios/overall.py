@@ -44,7 +44,7 @@ def classify_pixel(r, g, b, mode='dark'):
             return "top2"
         if r > 210 and 135 <= g <= 185 and b < 85:  # Orange
             return "top3"
-        if 200 <= r <= 220 and 200 <= g <= 220 and 200 <= b <= 220 and abs(r-g) < 8 and abs(g-b) < 8:
+        if 195 <= r <= 225 and 195 <= g <= 225 and 195 <= b <= 225 and abs(r-g) < 10 and abs(g-b) < 10:
             return "other"
     else:
         if r < 80 and 100 <= g <= 160 and b > 220:
@@ -209,7 +209,7 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
         max_vertical_run = 0
 
         for px in col:
-            if classify_pixel(*px, mode) is not None:
+            if classify_pixel(*px, mode) is not None and not is_gridline_pixel(*px, mode):
                 vertical_run += 1
                 max_vertical_run = max(max_vertical_run, vertical_run)
             else:
@@ -217,11 +217,12 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
 
         has_bar = max_vertical_run >= 1
 
+        MIN_BAR_WIDTH = 2
         if has_bar and not in_bar:
             seg_start = x
             in_bar = True
         elif not has_bar and in_bar:
-            if x - seg_start >= 1:
+            if x - seg_start >= MIN_BAR_WIDTH:
                 bar_segments.append((seg_start, x - 1))
             in_bar = False
 
@@ -240,8 +241,8 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
         for y in range(chart_top_line, chart_bottom_line):
             for x in range(chart_left, chart_right):
                 cat = classify_pixel(*arr[y, x], mode)
-                if cat == "other":
-                    debug_draw[y, x] = (0, 255, 0)  # Bright green
+                if cat is not None:
+                    debug_draw[y, x] = (0, 0, 255)
 
         # Draw gridlines in RED
         for y in collapsed:
@@ -255,6 +256,10 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
 
         cv2.imwrite(debug_output_path, debug_draw)
 
+    ##debug
+    print("BAR SEGMENTS:")
+    for seg in bar_segments:
+        print(seg)
 
     # --- Process bars and overlay debug heights ---
     for x1, x2 in bar_segments:
@@ -266,6 +271,8 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
 
         best = {"overall":0,"top1":0,"top2":0,"top3":0,"other":0}
 
+        print("Segment:", x1, x2, "assigned to:", hour)
+        
         for x in range(x1, x2+1):
             col = arr[chart_top_line:chart_bottom_line, x]
             cats = [classify_pixel(*px, mode) for px in col]
@@ -279,15 +286,20 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
 
             # Walk upward from bottom until classification stops
             bar_top_idx = bar_bottom_idx
+            gap_tolerance = 2
+            gap_count = 0
+
             for y in range(bar_bottom_idx, -1, -1):
                 if cats[y] is not None:
                     bar_top_idx = y
+                    gap_count = 0
                 else:
-                    break
+                    gap_count += 1
+                    if gap_count > gap_tolerance:
+                        break
 
             bar_height = bar_bottom_idx - bar_top_idx + 1
             bar_top = chart_top_line + bar_top_idx
-
 
             if bar_height < 1:
                 continue
