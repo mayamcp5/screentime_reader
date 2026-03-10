@@ -44,8 +44,9 @@ def classify_pixel(r, g, b, mode='dark'):
             return "top2"
         if r > 210 and 135 <= g <= 185 and b < 85:  # Orange
             return "top3"
-        if 195 <= r <= 225 and 195 <= g <= 225 and 195 <= b <= 225 and abs(r-g) < 10 and abs(g-b) < 10:
-            return "other"
+        if 205 <= r <= 220 and 205 <= g <= 220 and 210 <= b <= 225:
+            if b - r >= 3 and b - g >= 3:  # Blue tint = bar
+                return "other"
     else:
         if r < 80 and 100 <= g <= 160 and b > 220:
             return "top1"
@@ -67,9 +68,31 @@ def is_gridline_pixel(r, g, b, mode='dark'):
         return False
     brightness = (r + g + b) / 3
     if mode == 'light':
-        return 190 <= brightness <= 230
+        return 200 <= brightness <= 225
     else:
         return 40 <= brightness <= 120
+    
+def is_gridline_pixel_safe(r, g, b, arr=None, y=None, x=None, mode='dark'):
+    """Return True only if the pixel is part of a proper horizontal gridline."""
+    if not is_gridline_pixel(r, g, b, mode):
+        return False
+
+    if arr is None or y is None or x is None:
+        return True
+
+    # Require at least 8 contiguous pixels horizontally to be considered a gridline
+    run = 1
+    for dx in range(1, 8):
+        if x - dx >= 0 and is_gridline_pixel(*arr[y, x-dx], mode):
+            run += 1
+        else:
+            break
+    for dx in range(1, 8):
+        if x + dx < arr.shape[1] and is_gridline_pixel(*arr[y, x+dx], mode):
+            run += 1
+        else:
+            break
+    return run >= 8
 
 # ================================
 # HOURLY CHART EXTRACTION (with debug)
@@ -198,6 +221,14 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
         center = (start + end) / 2
         slot_centers.append(center)
 
+    for i, center in enumerate(slot_centers):
+        x = int(center)
+        col = arr[chart_top_line:chart_bottom_line, x]
+
+        classified = sum(1 for px in col if classify_pixel(*px, mode) is not None)
+
+        print(HOURS[i], "classified pixels:", classified)
+
     # --- Detect bars ---
     bar_segments = []
     in_bar = False
@@ -207,13 +238,24 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
         col = arr[chart_top_line:chart_bottom_line, x]
         vertical_run = 0
         max_vertical_run = 0
+        gap_count = 0  # initialize gap_count per column
 
-        for px in col:
-            if classify_pixel(*px, mode) is not None and not is_gridline_pixel(*px, mode):
+        for y_idx, px in enumerate(col):
+            if classify_pixel(*px, mode) is not None:
                 vertical_run += 1
                 max_vertical_run = max(max_vertical_run, vertical_run)
+                gap_count = 0  # reset gap_count when we see a classified pixel
+            elif is_gridline_pixel_safe(*px, arr=arr, y=y_idx, x=x, mode=mode):
+                gap_count += 1
+                if gap_count <= 2:
+                    vertical_run += 1
+                    max_vertical_run = max(max_vertical_run, vertical_run)
+                else:
+                    vertical_run = 0
+                    gap_count = 0
             else:
                 vertical_run = 0
+                gap_count = 0
 
         has_bar = max_vertical_run >= 1
 
@@ -237,16 +279,22 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
         debug_img = img.copy()
         debug_draw = cv2.cvtColor(np.array(debug_img), cv2.COLOR_RGB2BGR)
 
-        # Show detected "other" (gray) pixels in bright green
+        # Show classified and gridline pixels
         for y in range(chart_top_line, chart_bottom_line):
             for x in range(chart_left, chart_right):
                 cat = classify_pixel(*arr[y, x], mode)
-                if cat is not None:
+                is_grid = is_gridline_pixel(*arr[y, x], mode)
+                
+                if is_grid:
+                    # Gridline pixels → BRIGHT GREEN
+                    debug_draw[y, x] = (0, 255, 0)
+                elif cat is not None:
+                    # Classified (bar) pixels → RED
                     debug_draw[y, x] = (0, 0, 255)
 
-        # Draw gridlines in RED
+        # Draw detected gridline positions in YELLOW
         for y in collapsed:
-            cv2.line(debug_draw, (0, y), (img_w-1, y), (0, 0, 255), 1)
+            cv2.line(debug_draw, (0, y), (img_w-1, y), (0, 255, 255), 1)
 
         # Draw top line in BLUE
         cv2.line(debug_draw, (0, chart_top_line), (img_w-1, chart_top_line), (255, 0, 0), 1)
@@ -256,10 +304,6 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
 
         cv2.imwrite(debug_output_path, debug_draw)
 
-    ##debug
-    print("BAR SEGMENTS:")
-    for seg in bar_segments:
-        print(seg)
 
     # --- Process bars and overlay debug heights ---
     for x1, x2 in bar_segments:
