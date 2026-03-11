@@ -237,6 +237,16 @@ def main():
                 if data.get('hourly_usage'):
                     st.subheader("Hourly Usage (pixels)")
                     hourly_data = []
+                    
+                    # Add ymax row first
+                    ymax = data.get('ymax_pixels', 0)
+                    hourly_data.append({
+                        'Hour': 'ymax_pixels',
+                        'Overall': ymax,
+                        'Social': ymax,
+                        'Entertainment': ymax
+                    })
+
                     for hour in ['12am','1am','2am','3am','4am','5am','6am','7am','8am','9am','10am','11am',
                                 '12pm','1pm','2pm','3pm','4pm','5pm','6pm','7pm','8pm','9pm','10pm','11pm']:
                         if hour in data['hourly_usage']:
