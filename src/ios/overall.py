@@ -496,7 +496,7 @@ def process_ios_overall_screenshot(image_path: str) -> dict:
         r'\d{1,2}:\d{2}\s*(AM|PM)',
         r'\d+%',
         r'screen time', r'all devices', r'week day', r'yesterday',
-        r'updated today', r'most used', r'social', r'entertainment',
+        r'updated today', r'social', r'entertainment',
         r'education', r'shopping', r'utilities', r'limits'
     ]
 
@@ -505,47 +505,65 @@ def process_ios_overall_screenshot(image_path: str) -> dict:
         return any(re.search(pat, tl, re.IGNORECASE) for pat in STOP_PATTERNS)
 
     def extract_apps_from_lines(source_lines: list) -> list:
-        apps_dict = {}
+        all_apps = []
+        all_times = []
         in_most_used = False
-        pending_app = None
 
+        # 1. Collect everything in order
         for line in source_lines:
-            if "most used" in line.lower():
+            lower = line.lower()
+            
+            if "screen time" in lower or "yesterday" in lower or "show today" in lower:
+                in_most_used = False
+                continue
+
+            if "most used" in lower or "show categories" in lower:
                 in_most_used = True
+                continue
+            
+            if "updated today" in lower:
+                # We don't break immediately because in Dark Mode, 
+                # times sometimes appear AFTER this line in OCR
                 continue
             if not in_most_used:
                 continue
-            if is_stop_line(line):
-                break
 
-            parsed = robust_parse_time(line)
-            if parsed:
-                h, m = parsed
+            # Try to parse as time first
+            parsed_time = parse_time_fragment(line)
+            if parsed_time:
+                h, m = parsed_time
                 if h + m > 0:
-                    if pending_app:
-                        apps_dict[pending_app] = f"{h}h {m}m"
-                        pending_app = None
-                    else:
-                        print(f"⚠️ Found time {h}h {m}m but NO pending app!")
-                    continue
+                    all_times.append(f"{h}h {m}m")
+                    continue # If it's a time, it's not an app name
 
+            # If not a time, check if it's a valid app name
             candidate = clean_candidate(line)
-            
             name = clean_app_name(candidate)
             
-            if is_valid_app_name(name) and len(name) >= 3:
-                normalized = re.sub(r'\W+$', '', name).strip()
-                if len(normalized) >= 3:
-                    if pending_app and pending_app not in apps_dict:
-                        apps_dict[pending_app] = "0h 0m"
-                    
-                    if normalized not in apps_dict:
-                        pending_app = normalized
+            # Filter out junk like ">", "|", single letters, or stop words
+            if is_valid_app_name(name) and len(name) >= 2 and not is_stop_line(line):
+                all_apps.append(name)
 
-        if pending_app and pending_app not in apps_dict:
-            apps_dict[pending_app] = "0h 0m"
+        # 2. Matching Logic
+        results = []
+        
+        # CASE: We found a list of apps and a list of times
+        # This works for Dark Mode (Apps... then Times) 
+        # and Light Mode (App, Time, App, Time) because the relative order is preserved.
+        num_to_match = min(len(all_apps), len(all_times))
+        
+        for i in range(num_to_match):
+            results.append({
+                "name": all_apps[i],
+                "time": all_times[i]
+            })
 
-        return [{"name": name, "time": time} for name, time in apps_dict.items()]
+        # If we found apps but NO times, return apps with 0m
+        if not results and all_apps:
+            for app in all_apps:
+                results.append({"name": app, "time": "0h 0m"})
+
+        return results
     
     def is_category_view(source_lines: list) -> bool:
         for line in source_lines:
@@ -566,8 +584,13 @@ def process_ios_overall_screenshot(image_path: str) -> dict:
     else:
         top_apps = extract_apps_from_lines(light_lines)
 
-    if not top_apps and not is_category_view(light_lines):
-        top_apps = extract_apps_from_lines(lines)
+    if not is_category_view(light_lines):
+        has_no_apps = len(top_apps) == 0
+        missing_all_times = all(app.get("time") == "0h 0m" for app in top_apps)
+
+        if has_no_apps or missing_all_times:
+            print("\n--- FALLING BACK TO ALL LINES ---")
+            top_apps = extract_apps_from_lines(lines)
 
     def minutes(t):
         parsed = parse_time_fragment(t)
