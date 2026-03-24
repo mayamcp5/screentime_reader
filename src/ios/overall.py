@@ -50,7 +50,7 @@ def classify_pixel(r, g, b, mode='dark'):
     else:
         if r < 80 and 100 <= g <= 160 and b > 220:
             return "top1"
-        if r < 150 and g > 170 and 180 < b < 240:
+        if 70 <= r <= 130 and 180 <= g <= 240 and 230 <= b <= 255:
             return "top2"
         if r > 210 and 140 <= g <= 190 and b < 90:
             return "top3"
@@ -443,9 +443,7 @@ def process_ios_overall_screenshot(image_path: str) -> dict:
         norm = normalize_line(line)
         words = norm.split()
 
-        # FIX: detect categories in the order they appear in the line,
-        # not in dict-definition order, so "Games Entertainment" won't
-        # become "Entertainment Games".
+        # detect categories in the order they appear in the line,
         detected_categories = []
         seen_canonicals = set()
         for word in words:
