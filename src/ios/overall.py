@@ -50,7 +50,7 @@ def classify_pixel(r, g, b, mode='dark'):
     else:
         if r < 80 and 100 <= g <= 160 and b > 220:
             return "top1"
-        if 70 <= r <= 130 and 180 <= g <= 240 and 230 <= b <= 255:
+        if 100 <= r and 190 <= g and 215 <= b:
             return "top2"
         if r > 210 and 140 <= g <= 190 and b < 90:
             return "top3"
@@ -198,7 +198,7 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
 
     # --- Find vertical axes ---
     def find_vertical_axis(search_from_left=True):
-        x_range = range(img_w) if search_from_left else range(img_w - 1, -1, -1)
+        x_range = range(img_w) if search_from_left else range(img_w - 20, -1, -1)
         for x in x_range:
             col = arr[chart_top_line:chart_bottom_line, x]
             count = sum(is_gridline_pixel(*px, mode) for px in col)
@@ -233,64 +233,50 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
     bar_segments = []
     in_bar = False
     seg_start = None
+    empty_col_count = 0
+    MIN_BAR_WIDTH = 3      # minimum width of a bar
+    MIN_GAP = 3            # minimum horizontal gap to separate bars
 
     for x in range(chart_left, chart_right):
         col = arr[chart_top_line:chart_bottom_line, x]
-        vertical_run = 0
-        max_vertical_run = 0
-        gap_count = 0  # initialize gap_count per column
+        classified_pixels = sum(1 for px in col if classify_pixel(*px, mode) is not None)
+        
+        has_bar = classified_pixels >= 1  # you could make this 2–3 to reduce noise
+        
+        if has_bar:
+            if not in_bar:
+                seg_start = x
+                in_bar = True
+            empty_col_count = 0  # reset gap counter
+        else:
+            if in_bar:
+                empty_col_count += 1
+                if empty_col_count >= MIN_GAP:
+                    if x - seg_start - empty_col_count + 1 >= MIN_BAR_WIDTH:
+                        bar_segments.append((seg_start, x - empty_col_count))
+                    in_bar = False
+                    seg_start = None
+                    empty_col_count = 0
 
-        for y_idx, px in enumerate(col):
-            if classify_pixel(*px, mode) is not None:
-                vertical_run += 1
-                max_vertical_run = max(max_vertical_run, vertical_run)
-                gap_count = 0  # reset gap_count when we see a classified pixel
-            elif is_gridline_pixel_safe(*px, arr=arr, y=y_idx, x=x, mode=mode):
-                gap_count += 1
-                if gap_count <= 2:
-                    vertical_run += 1
-                    max_vertical_run = max(max_vertical_run, vertical_run)
-                else:
-                    vertical_run = 0
-                    gap_count = 0
-            else:
-                vertical_run = 0
-                gap_count = 0
-
-        has_bar = max_vertical_run >= 1
-
-        MIN_BAR_WIDTH = 2
-        if has_bar and not in_bar:
-            seg_start = x
-            in_bar = True
-        elif not has_bar and in_bar:
-            if x - seg_start >= MIN_BAR_WIDTH:
-                bar_segments.append((seg_start, x - 1))
-            in_bar = False
-
-    if in_bar and chart_right - seg_start >= 1:
+    # Catch the last bar if it reaches the end
+    if in_bar and chart_right - seg_start >= MIN_BAR_WIDTH:
         bar_segments.append((seg_start, chart_right - 1))
 
     result = {hour: {"overall":0, "top1":0,"top2":0,"top3":0,"other":0} for hour in HOURS}
     result['ymax_pixels'] = ymax
 
+    x_start, x_end = 642, 661
+    y_top, y_bottom = chart_top_line, chart_bottom_line  # from your debug extraction
+
+    for x in range(x_start, x_end, 5):  # sample every 5 pixels across width
+        for y in range(y_top, y_bottom, 5):  # sample every 5 pixels down height
+            r, g, b = arr[y, x]
+            print(f"x={x}, y={y} -> R={r}, G={g}, B={b}")
+
     # --- Debug image ---
     if debug_output_path:
         debug_img = img.copy()
         debug_draw = cv2.cvtColor(np.array(debug_img), cv2.COLOR_RGB2BGR)
-
-        # Show classified and gridline pixels
-        for y in range(chart_top_line, chart_bottom_line):
-            for x in range(chart_left, chart_right):
-                cat = classify_pixel(*arr[y, x], mode)
-                is_grid = is_gridline_pixel(*arr[y, x], mode)
-                
-                if is_grid:
-                    # Gridline pixels → BRIGHT GREEN
-                    debug_draw[y, x] = (0, 255, 0)
-                elif cat is not None:
-                    # Classified (bar) pixels → RED
-                    debug_draw[y, x] = (0, 0, 255)
 
         # Draw detected gridline positions in YELLOW
         for y in collapsed:
@@ -302,8 +288,21 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
         # Draw bottom line in PURPLE
         cv2.line(debug_draw, (0, chart_bottom_line), (img_w-1, chart_bottom_line), (128, 0, 128), 1)
 
-        cv2.imwrite(debug_output_path, debug_draw)
+        # Visualize all classified pixels per column
+        for y in range(chart_top_line, chart_bottom_line):
+            for x in range(chart_left, chart_right):
+                cat = classify_pixel(*arr[y, x], mode)
+                if cat == "top2":
+                    debug_draw[y, x] = (0, 255, 0)  # cyan for top2
 
+        for x1, x2 in bar_segments:
+            cv2.rectangle(debug_draw, (x1, chart_top_line), (x2, chart_bottom_line),
+                        (0, 140, 255), 1)  # Orange-ish box for detected bars
+
+        cv2.imwrite(debug_output_path, debug_draw)
+    
+    x_start, x_end = 580, 605
+    y_top, y_bottom = chart_top_line, chart_bottom_line  # from your debug extraction
 
     # --- Process bars and overlay debug heights ---
     for x1, x2 in bar_segments:
@@ -330,7 +329,7 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
 
             # Walk upward from bottom until classification stops
             bar_top_idx = bar_bottom_idx
-            gap_tolerance = 2
+            gap_tolerance = 1
             gap_count = 0
 
             for y in range(bar_bottom_idx, -1, -1):
