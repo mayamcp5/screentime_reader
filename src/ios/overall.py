@@ -42,25 +42,38 @@ def classify_pixel(r, g, b, mode='dark'):
             return "top1"
         if r < 140 and g > 165 and 180 < b < 235:  # Teal
             return "top2"
-        if r > 210 and 135 <= g <= 185 and b < 85:  # Orange
+        if r > 190 and 135 <= g <= 185 and b < 85:  # Orange
             return "top3"
         if 205 <= r <= 220 and 205 <= g <= 220 and 210 <= b <= 225:
             if b - r >= 3 and b - g >= 3:  # Blue tint = bar
                 return "other"
     else:
-        if r < 80 and 100 <= g <= 160 and b > 220:
-            return "top1"
         if 100 <= r and 190 <= g and 215 <= b:
             return "top2"
-        if r > 210 and 140 <= g <= 190 and b < 90:
+        if r > 190 and 140 <= g <= 190 and b < 90:
             return "top3"
-        if 48 <= r <= 68 and 48 <= g <= 68 and 48 <= b <= 68 and abs(r-g) < 5 and abs(g-b) < 5:
+        if (b - r) > 35 and b > 90:
+            return "top1"
+        if 40 <= r <= 90 and 40 <= g <= 90 and 40 <= b <= 90 and abs(r-g) < 10 and abs(g-b) < 10:
             return "other"
     
     return None
 
-def is_chart_bg(r, g, b):
-    return 20 <= int(r) <= 45 and 20 <= int(g) <= 45 and 20 <= int(b) <= 50
+def is_chart_bg(r, g, b, mode='dark'):
+    r, g, b = int(r), int(g), int(b)
+    if mode == 'light':
+        # near-white background
+        return r > 240 and g > 240 and b > 240
+    else:
+        # dark mode background
+        return (
+            15 <= r <= 50 and
+            15 <= g <= 50 and
+            15 <= b <= 60 and
+            abs(r - g) < 8 and
+            abs(g - b) < 8
+        )
+
 
 def is_gridline_pixel(r, g, b, mode='dark'):
     r, g, b = int(r), int(g), int(b)
@@ -80,19 +93,19 @@ def is_gridline_pixel_safe(r, g, b, arr=None, y=None, x=None, mode='dark'):
     if arr is None or y is None or x is None:
         return True
 
-    # Require at least 8 contiguous pixels horizontally to be considered a gridline
+    # Require at least 10 contiguous pixels horizontally to be considered a gridline
     run = 1
-    for dx in range(1, 8):
+    for dx in range(1, 10):
         if x - dx >= 0 and is_gridline_pixel(*arr[y, x-dx], mode):
             run += 1
         else:
             break
-    for dx in range(1, 8):
+    for dx in range(1, 10):
         if x + dx < arr.shape[1] and is_gridline_pixel(*arr[y, x+dx], mode):
             run += 1
         else:
             break
-    return run >= 8
+    return run >= 10
 
 # ================================
 # HOURLY CHART EXTRACTION (with debug)
@@ -107,265 +120,247 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
     avg_brightness = np.mean(sample)
     mode = 'light' if avg_brightness > 127 else 'dark'
 
-    # --- Find chart bar region ---
-    def find_bar_regions(probe_x):
-        regions = []
-        in_region = False
-        start = None
-        for y in range(img_h // 4, img_h):
-            has_bar = classify_pixel(*arr[y, probe_x], mode) is not None
-            if has_bar and not in_region:
-                start = y
-                in_region = True
-            elif not has_bar and in_region:
-                if y - start > 20:
-                    regions.append((start, y))
-                in_region = False
-        return regions
+    # ============================================================
+    # STEP 1: Detect horizontal gridlines across entire image
+    # ============================================================
 
-    vertical_probes = range(img_w // 3, 2 * img_w // 3, 40)
-    best_regions = max(
-        (find_bar_regions(x) for x in vertical_probes),
-        key=len,
-        default=[]
-    )
-    if not best_regions:
-        return {}
-    
-    # DEBUG: list all candidate regions
-    for i, (top, bottom) in enumerate(best_regions):
-        print(f"Candidate region {i}: top={top}, bottom={bottom}, height={bottom-top}")
-
-    # Pick the bottommost region with height >= 20px (filters noise, always
-    # gives the hourly chart since it sits below the weekly chart on screen).
-    MIN_CHART_HEIGHT = 20
-    substantial_regions = [(top, bottom) for top, bottom in best_regions
-                           if (bottom - top) >= MIN_CHART_HEIGHT]
-    if not substantial_regions:
-        return {}
-    chart_top, chart_bottom = max(substantial_regions, key=lambda r: r[0])
-    chart_bottom += 1
-
-    # --- Detect gridlines ---
     gridlines = []
-    for y in range(0, chart_bottom):
-        if y < 0 or y >= img_h:
-            continue
+
+    for y in range(img_h):
         row = arr[y]
         gray_count = sum(is_gridline_pixel(*px, mode) for px in row)
-        if gray_count > 0.3 * img_w:
+
+        if gray_count > 0.30 * img_w:
             gridlines.append(y)
 
+    # Collapse adjacent rows into single gridlines
     collapsed = []
     if gridlines:
         group = [gridlines[0]]
+
         for y in gridlines[1:]:
             if y - group[-1] <= 2:
                 group.append(y)
             else:
                 collapsed.append(int(sum(group)/len(group)))
                 group = [y]
+
         collapsed.append(int(sum(group)/len(group)))
+
     collapsed.sort()
 
-    NUM_GRIDLINES = 5
-    if len(collapsed) > NUM_GRIDLINES:
-        collapsed = collapsed[-NUM_GRIDLINES:]
+    # ============================================================
+    # STEP 2: Search for 5 evenly spaced gridlines (chart pattern)
+    # ============================================================
 
-    # Validate we have exactly 5 gridlines
-    if len(collapsed) < 5 and len(collapsed) >= 2:
-        print(f"⚠️ Only detected {len(collapsed)} gridlines: {collapsed}")
-        
-        # Estimate average spacing
+    chart_top_line = None
+    chart_bottom_line = None
+
+    for i in range(len(collapsed) - 4):
+        candidate = collapsed[i:i+5]
+
         spacings = [
-            collapsed[i+1] - collapsed[i]
-            for i in range(len(collapsed)-1)
+            candidate[j+1] - candidate[j]
+            for j in range(4)
         ]
-        avg_spacing = sum(spacings) / len(spacings)
-        
-        print(f"Estimated spacing: {avg_spacing}")
 
-        # Add missing gridlines ABOVE
-        while len(collapsed) < 5:
-            new_line = int(collapsed[0] - avg_spacing)
-            collapsed.insert(0, new_line)
+        avg = sum(spacings) / len(spacings)
 
-        print(f"After reconstruction: {collapsed}")
+        # check spacing consistency
+        if all(abs(s - avg) < avg * 0.35 for s in spacings):
+            chart_top_line = candidate[0]
+            chart_bottom_line = candidate[-1]
 
-    chart_top_line = collapsed[0]
-    chart_bottom_line = collapsed[-1]
+    if chart_top_line is None:
+        return {}
+
     ymax = chart_bottom_line - chart_top_line
 
-    # --- Find vertical axes ---
+    # ============================================================
+    # STEP 3: Detect vertical axes
+    # ============================================================
+
     def find_vertical_axis(search_from_left=True):
-        x_range = range(img_w) if search_from_left else range(img_w - 20, -1, -1)
+
+        x_range = range(img_w) if search_from_left else range(img_w-1, -1, -1)
+
         for x in x_range:
+
             col = arr[chart_top_line:chart_bottom_line, x]
+
             count = sum(is_gridline_pixel(*px, mode) for px in col)
-            if count > 0.35 * (chart_bottom_line - chart_top_line):
+
+            if count > 0.35 * (chart_bottom_line-chart_top_line):
                 return x
+
         return None
+
 
     chart_left = find_vertical_axis(True)
     chart_right = find_vertical_axis(False)
 
-    if chart_left is None or chart_right is None or chart_right <= chart_left:
+    if chart_left is None or chart_right is None:
         return {}
 
     total_width = chart_right - chart_left
     slot_width = total_width / 24.0
+
     slot_centers = []
+
     for i in range(24):
+
         start = chart_left + slot_width * i
         end   = chart_left + slot_width * (i+1)
-        center = (start + end) / 2
-        slot_centers.append(center)
 
-    for i, center in enumerate(slot_centers):
-        x = int(center)
-        col = arr[chart_top_line:chart_bottom_line, x]
+        slot_centers.append((start+end)/2)
 
-        classified = sum(1 for px in col if classify_pixel(*px, mode) is not None)
+    # ============================================================
+    # STEP 4: Detect bar heights per hour slot
+    # ============================================================
+    # within each hour slot:
+    #   scan for bar pixels in that section
+    #       start by checking at the y value immediately above the x-axis. if it is not a background pixel, then start a bar!
+    #       count the overall height of the bar using the longest segment detected in that section (detect background pixel ==> end vertical run/bar)
+    #   count the height of each colored section of the bar and map to the correct category
+    result = {
+        hour: {"overall": 0, "top1": 0, "top2": 0, "top3": 0, "other": 0}
+        for hour in HOURS
+    }
+    result["ymax_pixels"] = ymax
 
-        print(HOURS[i], "classified pixels:", classified)
+    for i in range(24):
+        hour = HOURS[i]
 
-    # --- Detect bars ---
-    bar_segments = []
-    in_bar = False
-    seg_start = None
-    empty_col_count = 0
-    MIN_BAR_WIDTH = 3      # minimum width of a bar
-    MIN_GAP = 3            # minimum horizontal gap to separate bars
+        x_start = int(chart_left + slot_width * i)
+        x_end   = int(chart_left + slot_width * (i + 1))
 
-    for x in range(chart_left, chart_right):
-        col = arr[chart_top_line:chart_bottom_line, x]
-        classified_pixels = sum(1 for px in col if classify_pixel(*px, mode) is not None)
-        
-        has_bar = classified_pixels >= 1  # you could make this 2–3 to reduce noise
-        
-        if has_bar:
-            if not in_bar:
-                seg_start = x
-                in_bar = True
-            empty_col_count = 0  # reset gap counter
+        column_data = []
+
+        bottom_idx = (chart_bottom_line - chart_top_line) - 1
+
+        # =========================================================
+        # PASS 1: Analyze every column normally (same as before)
+        # =========================================================
+        for x in range(x_start, x_end):
+
+            r, g, b = arr[chart_top_line + bottom_idx, x]
+
+            if is_chart_bg(r, g, b, mode):
+                continue
+
+            bar_top_idx = bottom_idx
+            gap_count = 0
+
+            for y in range(bottom_idx, -1, -1):
+                r, g, b = arr[chart_top_line + y, x]
+                cat = classify_pixel(r, g, b, mode)
+
+                if is_chart_bg(r, g, b, mode):
+                    gap_count += 1
+                    if gap_count > 2:
+                        break
+                else:
+                    bar_top_idx = y
+                    gap_count = 0
+
+            bar_height = bottom_idx - bar_top_idx + 1
+
+            if bar_height <= 0:
+                continue
+
+            breakdown = {"top1": 0, "top2": 0, "top3": 0, "other": 0}
+
+            for y in range(bar_top_idx, bottom_idx + 1):
+                r, g, b = arr[chart_top_line + y, x]
+                cat = classify_pixel(r, g, b, mode)
+                if cat in breakdown:
+                    breakdown[cat] += 1
+
+            column_data.append({
+                "x": x,
+                "height": bar_height,
+                "bottom": bottom_idx,
+                "breakdown": breakdown
+            })
+
+        # =========================================================
+        # PASS 2: WIDTH VALIDATION (THIS IS THE FIX)
+        # =========================================================
+        valid_columns = []
+
+        for j in range(len(column_data) - 2):
+            c1 = column_data[j]
+            c2 = column_data[j + 1]
+            c3 = column_data[j + 2]
+
+            # must be adjacent columns
+            if c2["x"] == c1["x"] + 1 and c3["x"] == c2["x"] + 1:
+
+                # must all touch the bottom (same baseline)
+                if abs(c1["bottom"] - c2["bottom"]) <= 1 and abs(c2["bottom"] - c3["bottom"]) <= 1:
+
+                    valid_columns.extend([c1, c2, c3])
+
+        # =========================================================
+        # PASS 3: PICK TALLEST VALID COLUMN
+        # =========================================================
+        if valid_columns:
+            tallest = max(valid_columns, key=lambda c: c["height"])
+
+            result[hour] = {
+                "overall": tallest["height"],
+                "top1": tallest["breakdown"]["top1"],
+                "top2": tallest["breakdown"]["top2"],
+                "top3": tallest["breakdown"]["top3"],
+                "other": tallest["breakdown"]["other"]
+            }
         else:
-            if in_bar:
-                empty_col_count += 1
-                if empty_col_count >= MIN_GAP:
-                    if x - seg_start - empty_col_count + 1 >= MIN_BAR_WIDTH:
-                        bar_segments.append((seg_start, x - empty_col_count))
-                    in_bar = False
-                    seg_start = None
-                    empty_col_count = 0
+            result[hour] = {
+                "overall": 0,
+                "top1": 0,
+                "top2": 0,
+                "top3": 0,
+                "other": 0
+            }
 
-    # Catch the last bar if it reaches the end
-    if in_bar and chart_right - seg_start >= MIN_BAR_WIDTH:
-        bar_segments.append((seg_start, chart_right - 1))
-
-    result = {hour: {"overall":0, "top1":0,"top2":0,"top3":0,"other":0} for hour in HOURS}
-    result['ymax_pixels'] = ymax
-
-    x_start, x_end = 642, 661
-    y_top, y_bottom = chart_top_line, chart_bottom_line  # from your debug extraction
-
-    for x in range(x_start, x_end, 5):  # sample every 5 pixels across width
-        for y in range(y_top, y_bottom, 5):  # sample every 5 pixels down height
-            r, g, b = arr[y, x]
-            print(f"x={x}, y={y} -> R={r}, G={g}, B={b}")
-
-    # --- Debug image ---
+    # ============================================================
+    # DEBUG IMAGE (CLEAN BAR VISUALIZATION)
+    # ============================================================
     if debug_output_path:
+
         debug_img = img.copy()
         debug_draw = cv2.cvtColor(np.array(debug_img), cv2.COLOR_RGB2BGR)
 
-        # Draw detected gridline positions in YELLOW
+        # ------------------------------------------------------------
+        # 1. Draw chart bounds
+        # ------------------------------------------------------------
         for y in collapsed:
-            cv2.line(debug_draw, (0, y), (img_w-1, y), (0, 255, 255), 1)
+            cv2.line(debug_draw, (0, y), (img_w - 1, y), (180, 180, 0), 1)
 
-        # Draw top line in BLUE
-        cv2.line(debug_draw, (0, chart_top_line), (img_w-1, chart_top_line), (255, 0, 0), 1)
+        cv2.line(debug_draw, (0, chart_top_line),
+                (img_w - 1, chart_top_line), (255, 0, 0), 2)
 
-        # Draw bottom line in PURPLE
-        cv2.line(debug_draw, (0, chart_bottom_line), (img_w-1, chart_bottom_line), (128, 0, 128), 1)
+        cv2.line(debug_draw, (0, chart_bottom_line),
+                (img_w - 1, chart_bottom_line), (128, 0, 128), 2)
 
-        # Visualize all classified pixels per column
-        for y in range(chart_top_line, chart_bottom_line):
-            for x in range(chart_left, chart_right):
-                cat = classify_pixel(*arr[y, x], mode)
-                if cat == "top2":
-                    debug_draw[y, x] = (0, 255, 0)  # cyan for top2
+        # ------------------------------------------------------------
+        # 2. Draw hour slots
+        # ------------------------------------------------------------
+        for i in range(24):
+            x1 = int(chart_left + slot_width * i)
+            x2 = int(chart_left + slot_width * (i + 1))
 
-        for x1, x2 in bar_segments:
-            cv2.rectangle(debug_draw, (x1, chart_top_line), (x2, chart_bottom_line),
-                        (0, 140, 255), 1)  # Orange-ish box for detected bars
+            cv2.rectangle(
+                debug_draw,
+                (x1, chart_top_line),
+                (x2, chart_bottom_line),
+                (0, 140, 255),
+                1
+            )
 
         cv2.imwrite(debug_output_path, debug_draw)
-    
-    x_start, x_end = 580, 605
-    y_top, y_bottom = chart_top_line, chart_bottom_line  # from your debug extraction
 
-    # --- Process bars and overlay debug heights ---
-    for x1, x2 in bar_segments:
-        bar_center = (x1 + x2) / 2.0
-
-        distances = [abs(bar_center - c) for c in slot_centers]
-        slot_idx = distances.index(min(distances))
-        hour = HOURS[slot_idx]
-
-        best = {"overall":0,"top1":0,"top2":0,"top3":0,"other":0}
-
-        print("Segment:", x1, x2, "assigned to:", hour)
-        
-        for x in range(x1, x2+1):
-            col = arr[chart_top_line:chart_bottom_line, x]
-            cats = [classify_pixel(*px, mode) for px in col]
-            bar_rows = [y for y,c in enumerate(cats) if c is not None]
-
-            if len(bar_rows) < 1:
-                continue
-
-            # Find the LOWEST classified pixel (true bottom of this bar)
-            bar_bottom_idx = max(bar_rows)
-
-            # Walk upward from bottom until classification stops
-            bar_top_idx = bar_bottom_idx
-            gap_tolerance = 1
-            gap_count = 0
-
-            for y in range(bar_bottom_idx, -1, -1):
-                if cats[y] is not None:
-                    bar_top_idx = y
-                    gap_count = 0
-                else:
-                    gap_count += 1
-                    if gap_count > gap_tolerance:
-                        break
-
-            bar_height = bar_bottom_idx - bar_top_idx + 1
-            bar_top = chart_top_line + bar_top_idx
-
-            if bar_height < 1:
-                continue
-
-            if bar_height > best['overall']:
-                best['overall'] = bar_height
-                best.update({cat: sum(1 for c in cats if c==cat) for cat in ["top1","top2","top3","other"]})
-
-        result[hour] = best
-
-        # --- Draw colored bar heights for debug ---
-        if debug_output_path and best['overall'] > 0:
-            for cat,color in zip(["top1","top2","top3","other"],[(0,0,255),(255,0,0),(0,140,255),(128,128,128)]):
-                h = best.get(cat,0)
-                if h>0:
-                    y_start = chart_bottom_line
-                    y_end = chart_bottom_line - h
-                    cv2.line(debug_draw, (x1, y_start), (x1, y_end), color, 1)
-                    cv2.line(debug_draw, (x2, y_start), (x2, y_end), color, 1)
-
-    if debug_output_path:
-        cv2.imwrite(debug_output_path, debug_draw)
-
+    print(result)
     return result
 
 # ================================
