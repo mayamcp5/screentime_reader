@@ -166,13 +166,24 @@ def main():
                 lines.append(f"{a['name']}\t{a['time']}")
 
         if result_type == 'ios_notifications':
+            lines.append(f"Date\t{data.get('date', 'N/A')}")
             lines.append(f"Total Notifications\t{data.get('total_notifications', 0)}")
+            lines.append(f"Y-Max\t{data.get('y_max', 'N/A')}")
             lines.append(f"Y-Max Pixels\t{data.get('ymax_pixels', 0)}")
             lines.append("")
+            
+            if data.get('top_apps'):
+                lines.append("Top Notification Sources")
+                lines.append("App\tCount")
+                for app in data['top_apps']:
+                    lines.append(f"{app['name']}\t{app['count']}")
+                lines.append("")
             
             if data.get('hourly_notifications'):
                 lines.append("Hourly Notifications")
                 lines.append("Hour\tNotifications")
+                ymax = data.get('ymax_pixels', 0)
+                lines.append(f"ymax_pixels\t{ymax}")
                 for hour in ['12am','1am','2am','3am','4am','5am','6am','7am','8am','9am','10am','11am',
                             '12pm','1pm','2pm','3pm','4pm','5pm','6pm','7pm','8pm','9pm','10pm','11pm']:
                     if hour in data['hourly_notifications']:
@@ -180,13 +191,25 @@ def main():
                 lines.append("")
 
         if result_type == 'ios_pickups':
+            lines.append(f"Date\t{data.get('date', 'N/A')}")
             lines.append(f"Total Pickups\t{data.get('total_pickups', 0)}")
+            lines.append(f"First Pickup\t{data.get('first_pickup', 'N/A')}")
+            lines.append(f"Y-Max\t{data.get('y_max', 'N/A')}")
             lines.append(f"Y-Max Pixels\t{data.get('ymax_pixels', 0)}")
             lines.append("")
+            
+            if data.get('top_apps'):
+                lines.append("Top Pickup Apps")
+                lines.append("App\tCount")
+                for app in data['top_apps']:
+                    lines.append(f"{app['name']}\t{app['count']}")
+                lines.append("")
             
             if data.get('hourly_pickups'):
                 lines.append("Hourly Pickups")
                 lines.append("Hour\tPickups")
+                ymax = data.get('ymax_pixels', 0)
+                lines.append(f"ymax_pixels\t{ymax}")
                 for hour in ['12am','1am','2am','3am','4am','5am','6am','7am','8am','9am','10am','11am',
                             '12pm','1pm','2pm','3pm','4pm','5pm','6pm','7pm','8pm','9pm','10pm','11pm']:
                     if hour in data['hourly_pickups']:
@@ -333,17 +356,35 @@ def main():
             
             # iOS notifications
             elif result_type == "ios_notifications":
-                col1, col2 = st.columns(2)
+                col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.metric("Total Notifications", data.get('total_notifications', 'N/A'))
+                    st.metric("Date", data.get('date', 'N/A'))
                 with col2:
-                    st.metric("Y-Max (pixels)", data.get('ymax_pixels', 'N/A'))
+                    st.metric("Total Notifications", data.get('total_notifications', 'N/A'))
+                with col3:
+                    st.metric("Y-Max", data.get('y_max', 'N/A'))
                 
                 st.divider()
                 
+                # Top Apps
+                if data.get('top_apps'):
+                    st.subheader("Top Notification Sources")
+                    df = pd.DataFrame(data['top_apps'])
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+                    
+                    apps_text = "App\tCount\n" + "\n".join(
+                        [f"{a['name']}\t{a['count']}" for a in data['top_apps']]
+                    )
+                    st.code(apps_text, language=None)
+                
+                # Hourly
                 if data.get('hourly_notifications'):
                     st.subheader("Hourly Notifications")
                     hourly_data = []
+                    
+                    # Add ymax row
+                    ymax = data.get('ymax_pixels', 0)
+                    hourly_data.append({'Hour': 'ymax_pixels', 'Notifications': ymax})
                     
                     for hour in ['12am','1am','2am','3am','4am','5am','6am','7am','8am','9am','10am','11am',
                                 '12pm','1pm','2pm','3pm','4pm','5pm','6pm','7pm','8pm','9pm','10pm','11pm']:
@@ -363,17 +404,35 @@ def main():
 
             # iOS pickups  
             elif result_type == "ios_pickups":
-                col1, col2 = st.columns(2)
+                col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.metric("Total Pickups", data.get('total_pickups', 'N/A'))
+                    st.metric("Date", data.get('date', 'N/A'))
                 with col2:
-                    st.metric("Y-Max (pixels)", data.get('ymax_pixels', 'N/A'))
+                    st.metric("Total Pickups", data.get('total_pickups', 'N/A'))
+                with col3:
+                    st.metric("First Pickup", data.get('first_pickup', 'N/A'))
                 
                 st.divider()
                 
+                # Top Apps
+                if data.get('top_apps'):
+                    st.subheader("Top Pickup Apps")
+                    df = pd.DataFrame(data['top_apps'])
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+                    
+                    apps_text = "App\tCount\n" + "\n".join(
+                        [f"{a['name']}\t{a['count']}" for a in data['top_apps']]
+                    )
+                    st.code(apps_text, language=None)
+                
+                # Hourly
                 if data.get('hourly_pickups'):
                     st.subheader("Hourly Pickups")
                     hourly_data = []
+                    
+                    # Add ymax row
+                    ymax = data.get('ymax_pixels', 0)
+                    hourly_data.append({'Hour': 'ymax_pixels', 'Pickups': ymax})
                     
                     for hour in ['12am','1am','2am','3am','4am','5am','6am','7am','8am','9am','10am','11am',
                                 '12pm','1pm','2pm','3pm','4pm','5pm','6pm','7pm','8pm','9pm','10pm','11pm']:

@@ -93,7 +93,7 @@ def extract_simple_hourly_chart(image_path, is_bar_pixel_fn, debug_output_path=N
             col = arr[chart_top:chart_bottom, x]
             count = sum(is_gridline_pixel(*px, mode) for px in col)
 
-            if count > 0.35 * (chart_bottom - chart_top):
+            if count > 0.25 * (chart_bottom - chart_top):
                 return x
 
         return None
@@ -122,15 +122,24 @@ def extract_simple_hourly_chart(image_path, is_bar_pixel_fn, debug_output_path=N
 
         for x in range(x_start, x_end):
 
-            r, g, b = arr[chart_bottom - 1, x]
+            found_bar = False
+            start_y = None
 
-            if not is_bar_pixel_fn(r, g, b):
+            # scan upward a bit to FIND the bar first
+            for y in range(chart_bottom - 1, chart_bottom - 15, -1):
+                r, g, b = arr[y, x]
+                if is_bar_pixel_fn(r, g, b):
+                    found_bar = True
+                    start_y = y
+                    break
+
+            if not found_bar:
                 continue
 
-            top_y = chart_bottom - 1
+            top_y = start_y
             gap = 0
 
-            for y in range(chart_bottom - 1, chart_top, -1):
+            for y in range(start_y, chart_top, -1):
                 r, g, b = arr[y, x]
 
                 if is_bar_pixel_fn(r, g, b):
