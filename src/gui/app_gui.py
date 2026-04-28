@@ -11,6 +11,8 @@ from src.ios.overall import process_ios_overall_screenshot
 from src.ios.activity import process_ios_category_screenshot
 from src.android.overall import process_android_overall_screenshot
 from src.android.activity_history import process_android_activity_history
+from src.ios.notifications import process_ios_notifications_screenshot
+from src.ios.pickups import process_ios_pickups_screenshot
 
 def main():
     # Page config
@@ -162,6 +164,34 @@ def main():
             lines.append("App\tTime")
             for a in data['apps']:
                 lines.append(f"{a['name']}\t{a['time']}")
+
+        if result_type == 'ios_notifications':
+            lines.append(f"Total Notifications\t{data.get('total_notifications', 0)}")
+            lines.append(f"Y-Max Pixels\t{data.get('ymax_pixels', 0)}")
+            lines.append("")
+            
+            if data.get('hourly_notifications'):
+                lines.append("Hourly Notifications")
+                lines.append("Hour\tNotifications")
+                for hour in ['12am','1am','2am','3am','4am','5am','6am','7am','8am','9am','10am','11am',
+                            '12pm','1pm','2pm','3pm','4pm','5pm','6pm','7pm','8pm','9pm','10pm','11pm']:
+                    if hour in data['hourly_notifications']:
+                        lines.append(f"{hour}\t{data['hourly_notifications'][hour]}")
+                lines.append("")
+
+        if result_type == 'ios_pickups':
+            lines.append(f"Total Pickups\t{data.get('total_pickups', 0)}")
+            lines.append(f"Y-Max Pixels\t{data.get('ymax_pixels', 0)}")
+            lines.append("")
+            
+            if data.get('hourly_pickups'):
+                lines.append("Hourly Pickups")
+                lines.append("Hour\tPickups")
+                for hour in ['12am','1am','2am','3am','4am','5am','6am','7am','8am','9am','10am','11am',
+                            '12pm','1pm','2pm','3pm','4pm','5pm','6pm','7pm','8pm','9pm','10pm','11pm']:
+                    if hour in data['hourly_pickups']:
+                        lines.append(f"{hour}\t{data['hourly_pickups'][hour]}")
+                lines.append("")
         
         return "\n".join(lines)
 
@@ -173,6 +203,10 @@ def main():
             return "Overall"
         elif result_type == "ios_category":
             return data.get('category', 'Category')
+        elif result_type == "ios_notifications":
+            return "Notifications"
+        elif result_type == "ios_pickups":
+            return "Pickups"
         elif result_type == "android_activity":
             return "Activity"
         return "Result"
@@ -297,6 +331,66 @@ def main():
                 else:
                     st.markdown('<div class="warning-box">⚠️ No apps found in this category</div>', unsafe_allow_html=True)
             
+            # iOS notifications
+            elif result_type == "ios_notifications":
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Total Notifications", data.get('total_notifications', 'N/A'))
+                with col2:
+                    st.metric("Y-Max (pixels)", data.get('ymax_pixels', 'N/A'))
+                
+                st.divider()
+                
+                if data.get('hourly_notifications'):
+                    st.subheader("Hourly Notifications")
+                    hourly_data = []
+                    
+                    for hour in ['12am','1am','2am','3am','4am','5am','6am','7am','8am','9am','10am','11am',
+                                '12pm','1pm','2pm','3pm','4pm','5pm','6pm','7pm','8pm','9pm','10pm','11pm']:
+                        if hour in data['hourly_notifications']:
+                            hourly_data.append({
+                                'Hour': hour,
+                                'Notifications': data['hourly_notifications'][hour]
+                            })
+                    
+                    df = pd.DataFrame(hourly_data)
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+                    
+                    hourly_text = "Hour\tNotifications\n" + "\n".join(
+                        [f"{row['Hour']}\t{row['Notifications']}" for _, row in df.iterrows()]
+                    )
+                    st.code(hourly_text, language=None)
+
+            # iOS pickups  
+            elif result_type == "ios_pickups":
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Total Pickups", data.get('total_pickups', 'N/A'))
+                with col2:
+                    st.metric("Y-Max (pixels)", data.get('ymax_pixels', 'N/A'))
+                
+                st.divider()
+                
+                if data.get('hourly_pickups'):
+                    st.subheader("Hourly Pickups")
+                    hourly_data = []
+                    
+                    for hour in ['12am','1am','2am','3am','4am','5am','6am','7am','8am','9am','10am','11am',
+                                '12pm','1pm','2pm','3pm','4pm','5pm','6pm','7pm','8pm','9pm','10pm','11pm']:
+                        if hour in data['hourly_pickups']:
+                            hourly_data.append({
+                                'Hour': hour,
+                                'Pickups': data['hourly_pickups'][hour]
+                            })
+                    
+                    df = pd.DataFrame(hourly_data)
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+                    
+                    hourly_text = "Hour\tPickups\n" + "\n".join(
+                        [f"{row['Hour']}\t{row['Pickups']}" for _, row in df.iterrows()]
+                    )
+                    st.code(hourly_text, language=None)
+
             # Android Overall
             elif result_type == "android_overall":
                 col1, col2 = st.columns(2)
@@ -377,7 +471,7 @@ def main():
         platform = st.radio("Select Platform", ["iOS", "Android"], horizontal=True, label_visibility="collapsed")
         
         st.header("Step 2: Upload Screenshots")
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             st.subheader("Overall Screenshots")
@@ -396,6 +490,15 @@ def main():
                 type=['png', 'jpg', 'jpeg'],
                 accept_multiple_files=True,
                 key="category"
+            )
+        
+        with col3:
+            st.subheader("Pickups / Notifications")
+            pickups_files = st.file_uploader(
+                "Upload pickups/notifications screenshots",
+                type=['png', 'jpg', 'jpeg'],
+                accept_multiple_files=True,
+                key="pickups"
             )
         
         st.header("Step 3: Process & View Results")
@@ -430,6 +533,28 @@ def main():
                                 result = process_ios_category_screenshot(temp_path)
                                 st.session_state.results.append({
                                     "type": "ios_category",
+                                    "name": uploaded_file.name,
+                                    "data": result,
+                                    "image": temp_path
+                                })
+
+                            for uploaded_file in pickups_files:
+                                temp_path = f"/tmp/{uploaded_file.name}"
+                                with open(temp_path, "wb") as f:
+                                    f.write(uploaded_file.getbuffer())
+
+                                # Determine if it's notifications or pickups based on filename or process both
+                                # Assume alternating: first is notifications, second is pickups
+                                
+                                if "notif" in uploaded_file.name.lower():
+                                    result = process_ios_notifications_screenshot(temp_path)
+                                    result_type = "ios_notifications"
+                                else:  # assume pickups
+                                    result = process_ios_pickups_screenshot(temp_path)
+                                    result_type = "ios_pickups"
+
+                                st.session_state.results.append({
+                                    "type": result_type,
                                     "name": uploaded_file.name,
                                     "data": result,
                                     "image": temp_path

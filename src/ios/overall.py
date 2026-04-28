@@ -130,7 +130,7 @@ def extract_hourly_chart(image_path: str, debug_output_path=None) -> dict:
         row = arr[y]
         gray_count = sum(is_gridline_pixel(*px, mode) for px in row)
 
-        if gray_count > 0.30 * img_w:
+        if gray_count > 0.15 * img_w:
             gridlines.append(y)
 
     # Collapse adjacent rows into single gridlines
