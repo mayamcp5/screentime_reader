@@ -5,7 +5,7 @@ import cv2
 from src.utils import ocr_image
 from src.parsing.time_parsing import parse_time_fragment
 from src.parsing.app_name_parsing import clean_app_name, is_valid_app_name
-from src.ios.chart_utils import extract_simple_hourly_chart, normalize_hourly
+from src.ios.chart_utils import extract_simple_hourly_chart
 
 # ================================
 # OCR PREPROCESSING
@@ -245,10 +245,6 @@ def process_ios_pickups_screenshot(image_path: str) -> dict:
     print(f"\nHourly pixels: {hourly_pixels}")
     print(f"YMax pixels: {ymax_pixels}")
     
-    # Normalize using y_max if available, otherwise use total
-    normalization_value = y_max if y_max else total
-    hourly = normalize_hourly(hourly_pixels, normalization_value, ymax_pixels)
-    
     return {
         "date": date,
         "total_pickups": total,
@@ -256,5 +252,5 @@ def process_ios_pickups_screenshot(image_path: str) -> dict:
         "ymax_pixels": ymax_pixels,
         "first_pickup": first_pickup,
         "top_apps": top_apps,
-        "hourly_pickups": hourly
+        "hourly_pickups": hourly_pixels
     }

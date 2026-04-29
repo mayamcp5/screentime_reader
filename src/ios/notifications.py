@@ -5,7 +5,7 @@ import cv2
 from src.utils import ocr_image
 from src.parsing.time_parsing import parse_time_fragment
 from src.parsing.app_name_parsing import clean_app_name, is_valid_app_name
-from src.ios.chart_utils import extract_simple_hourly_chart, normalize_hourly
+from src.ios.chart_utils import extract_simple_hourly_chart
 
 # ================================
 # OCR PREPROCESSING
@@ -32,9 +32,10 @@ def preprocess_for_ocr(image_path: str, light_text: bool = False):
 # ================================
 def is_notification_bar(r, g, b):
     return (
-        r > 200 and
-        40 <= g <= 120 and
-        30 <= b <= 100
+        r > 180 and          
+        g < 140 and          
+        b < 130 and         
+        r > g and r > b
     )
 
 # ================================
@@ -80,28 +81,69 @@ def extract_date(lines):
     
     return None
 
+def extract_degree_number(line):
+    """Extract numbers that have a degree-like marker (° or OCR variants)"""
+    match = re.search(r"(\d+)\s*°", line)
+    if match:
+        return int(match.group(1))
+    
+    return None
+
 def extract_total_notifications(lines):
-    """Extract the big total number"""
-    nums = []
-    
+    import re
+
+    # =========================
+    # PHASE 1: GLOBAL TRUTH (DEGREE)
+    # =========================
     for line in lines:
+        match = re.search(r"(\d+)\s*°", line)
+        if match:
+            val = int(match.group(1))
+            print(f"[NOTIF DEBUG] GLOBAL DEGREE WINNER: {val}")
+            return val
+
+    # =========================
+    # PHASE 2: ANCHOR FALLBACK
+    # =========================
+    anchor_idx = None
+
+    for i, line in enumerate(lines):
+        if "notifications" in line.lower():
+            anchor_idx = i
+            print(f"[NOTIF DEBUG] Anchor found at {i}: {line}")
+            break
+
+    if anchor_idx is None:
+        return 0
+
+    candidates = []
+
+    for j in range(anchor_idx + 1, min(anchor_idx + 10, len(lines))):
+        line = lines[j].strip()
         lower = line.lower()
-        
-        # Skip these lines
-        if any(word in lower for word in ['yesterday', 'today', 'notification', 'updated', 'most']):
+
+        print(f"[NOTIF DEBUG] scanning {j}: {line}")
+
+        # skip axis junk
+        if re.search(r"\d{1,2}\s*am.*\d{1,2}\s*pm", lower):
             continue
-        
-        # Skip time patterns
-        if re.search(r'\d{1,2}:\d{2}\s*(AM|PM)', line, re.IGNORECASE):
-            continue
-        
-        # Extract standalone numbers
-        if re.match(r'^\d+$', line.strip()):
-            val = int(line.strip())
-            if val > 0:
-                nums.append(val)
-    
-    return max(nums) if nums else 0
+
+        # @ counts
+        match_at = re.search(r"@(\d+)", line)
+        if match_at:
+            val = int(match_at.group(1))
+            candidates.append(val)
+            print(f"[NOTIF DEBUG] @ candidate: {val}")
+
+        # fallback numbers
+        if re.fullmatch(r"\d{3,4}", line):
+            val = int(line)
+            if val > 50:
+                candidates.append(val)
+
+    print(f"[NOTIF DEBUG] fallback candidates: {candidates}")
+
+    return max(candidates) if candidates else 0
 
 def extract_y_axis_max(image_path):
     """Extract the highest y-axis label"""
@@ -198,15 +240,11 @@ def process_ios_notifications_screenshot(image_path: str) -> dict:
     print(f"\nHourly pixels: {hourly_pixels}")
     print(f"YMax pixels: {ymax_pixels}")
     
-    # Normalize
-    normalization_value = y_max if y_max else total
-    hourly = normalize_hourly(hourly_pixels, normalization_value, ymax_pixels)
-    
     return {
         "date": date,
         "total_notifications": total,
         "y_max": y_max,
         "ymax_pixels": ymax_pixels,
         "top_apps": top_apps,
-        "hourly_notifications": hourly
+        "hourly_notifications": hourly_pixels
     }

@@ -176,23 +176,3 @@ def extract_simple_hourly_chart(image_path, is_bar_pixel_fn, debug_output_path=N
         cv2.imwrite(debug_output_path, debug)
 
     return result
-
-
-# ================================
-# NORMALIZATION
-# ================================
-def normalize_hourly(hourly_pixels, total, ymax):
-    normalized = {}
-
-    for hour, px in hourly_pixels.items():
-        if hour == "ymax_pixels":
-            continue
-
-        if ymax > 0:
-            val = round((px / ymax) * total)
-        else:
-            val = 0
-
-        normalized[hour] = val
-
-    return normalized

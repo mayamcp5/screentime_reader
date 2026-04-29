@@ -138,9 +138,17 @@ def main():
         
         if data.get('top_apps'):
             lines.append("Top Apps")
-            lines.append("App\tTime")
+
+            # Decide header dynamically
+            if 'time' in data['top_apps'][0]:
+                lines.append("App\tTime")
+            else:
+                lines.append("App\tCount")
+
             for a in data['top_apps']:
-                lines.append(f"{a['name']}\t{a['time']}")
+                value = a.get('time', a.get('count', ''))
+                lines.append(f"{a['name']}\t{value}")
+
             lines.append("")
         
         if data.get('hourly_usage'):
@@ -533,7 +541,7 @@ def main():
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.subheader("Overall Screenshots")
+            st.subheader("Overall")
             overall_files = st.file_uploader(
                 "Upload overall screenshot(s)",
                 type=['png', 'jpg', 'jpeg'],
@@ -542,19 +550,19 @@ def main():
             )
         
         with col2:
-            category_label = "Activity Screenshots" if platform == "Android" else "Category Screenshots"
+            category_label = "Activity" if platform == "Android" else "Category"
             st.subheader(category_label)
             category_files = st.file_uploader(
-                f"Upload {category_label.lower()}",
+                f"Upload {category_label.lower()} screenshot(s)",
                 type=['png', 'jpg', 'jpeg'],
                 accept_multiple_files=True,
                 key="category"
             )
         
         with col3:
-            st.subheader("Pickups / Notifications")
+            st.subheader("Pickups & Notifications")
             pickups_files = st.file_uploader(
-                "Upload pickups/notifications screenshots",
+                "Upload pickups/notifications screenshot(s)",
                 type=['png', 'jpg', 'jpeg'],
                 accept_multiple_files=True,
                 key="pickups"
@@ -563,7 +571,7 @@ def main():
         st.header("Step 3: Process & View Results")
         
         if st.button("Process Screenshots", type="primary", use_container_width=True):
-            if not overall_files and not category_files:
+            if not overall_files and not category_files and not pickups_files:
                 st.error("Please upload at least one screenshot!")
             else:
                 st.session_state.results = []
